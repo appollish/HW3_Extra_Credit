@@ -1,0 +1,111 @@
+
+---
+title: 'HW #3 Part B'
+author: "Headley Appollis"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+word_document: default
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# R Packages
+
+##The packages we will use this week include **pls**, **glmnet**, **ggplot2**, and **ggrepel**. Installing **ggrepel** is optional since we only use it to label the data points for a scatter plot. **ggrepel** does get hang up during download due to some unknown bug.  
+
+```{r packages}
+library(pls)
+library(glmnet)
+library(ggplot2)
+library(ggrepel)
+```
+### Part B: Principal Components Analysis (PCA) on University Ranking
+
+The data set Universities.csv contain information on 1,302 American colleges and universities offering an undergraduate program. For each university, there are 17 measurements that include continuous measurements (such as tuition and graduation rate) and categorical measurements (such as location by state and whether it is a private or public school). You should remove all categorical variables and missing numeric measurements from the data set prior to doing the tasks below. 
+
+4.	Conduct a principal component analysis (PCA) of the given data set and comment on the results. 
+5.	Should the data be normalized? Discuss what characterizes the components you consider key. 
+
+
+```{r import}
+Universities <- read.csv("~/Desktop/BIA_FALL17/BIA_FALL17/BIA6301/HW3/data/Universities.csv")
+dim(Universities)
+Universities<- na.omit(Universities) #remove NA's 
+#####By removing all the missing values I end up with a data set of 471 data points. 
+dim(Universities)
+
+#row.names(Universities) <- Univerisities$name
+Universities_1 <-Universities[,-c(1:3)]
+dim(Universities_1)
+
+### There is a lot of missing values in the data. 
+```
+
+
+It is important to normalize the data as some of the variables are in absolute numbers and some variables is in percentage. If I run the model on these numbers at face value it will be bias towards large numbers.  
+
+```{r pcs starts}
+U_pcs<-prcomp(Universities_1, scale. = T) #use scale option to z-normalize data set. 
+summary(U_pcs)
+```
+
+Based on the table and histogram below 84.69% of the variance can be explained by the first 7 pc’s.
+```{r pcs plot}
+U_pcs.variance.explained <-(U_pcs$sdev^2 / sum(U_pcs$sdev^2))*100
+barplot(U_pcs.variance.explained, las=2, xlab="Principal Component", ylab="% Variance Explained", main="Principal Components versus Percent of Variance Explained")
+```
+
+This is the elbow plot - that gives a guidance in terms of how many pc's can be used in the analysis.
+```{r elbow plot for pcs}
+screeplot(U_pcs, type="line")
+```
+
+```{r this is the rotation}
+U_pcs$rotation
+```
+###The characteristics of the different components are: 
+
+•	PC1: These schools are characterized by out of state and instate tuition as well as the percentage of students in the top 10% and the percentage of students in the top 25%. 
+
+•	PC2: These universities are characterized by the number of students enrolled and the number of full time undergrads as well as the number of applications received and accepted. 
+
+•	PC3: These universities are characterized by the estimated book cost and the estimated personal cost, and to a lesser extend room and boarding fees.
+
+•	PC4: These universities are characterized by room fees, additional fees, estimated personal cost and the percentage of students in the top 25% and the top 10%
+
+•	PC5: Additional fees, estimated book cost, and the number of part-time characterized these universities
+
+
+### Scatter plot 
+```{r plot the first two against each other}
+scores<-as.data.frame(U_pcs$x)
+
+library(ggplot2)
+library(ggrepel)
+ggplot(scores) +
+  geom_point(aes(PC1, PC2), color = 'red') +
+  geom_text_repel(aes(PC1, PC2, label = rownames(scores))) +
+  theme_classic(base_size = 16)
+```
+
+###Another Practical Approach of PCA
+```{r scaling first}
+data <- scale(Universities_1)
+# Elbow Method for finding the optimal number of clusters
+set.seed(123)
+# Compute and plot wss for k = 2 to k = 15.
+k.max <- 15
+wss <- sapply(1:k.max, 
+ function(k){kmeans(data, k)$tot.withinss})
+wss
+
+plot(1:k.max, wss,
+ type="b", pch = 19, frame = FALSE, 
+ xlab="Number of clusters K",
+ ylab="Total within-clusters sum of squares")
+```
+

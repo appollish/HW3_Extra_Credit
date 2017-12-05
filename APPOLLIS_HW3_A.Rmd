@@ -1,0 +1,813 @@
+
+---
+title: 'HW #3 Part A'
+author: "Headley Appollis"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Business Problem
+
+You are a newly hired data scientist at General Casualty Kansas City (GCKC) insurance.  The CEO of GCKC would like to try to improve their pricing and product offerings for automobile insurance. They have traditionally only operated in the Midwest (IL, IN, MI, OH, WI, IA, KA, MN, MO, NE, ND, SD) but would like to go nationwide.  She gives you data on fatal automobile accidents from 2011 and asks you to “see what the data tell you.” The file **crash.csv** contains nearly 5000 observations on the following variables:
+*State *
+*Atmospheric condition - weather *
+*Crash date (mm/dd/yy)*
+*Fatalities in crash*
+*Roadway – type of location where crash occurred*
+*Age of driver*
+*Alcohol results – blood alcohol level for the driver*
+*Person type – who was killed*
+*Drug involved *
+*Race of the driver*
+*Gender of the driver*
+*Severity of the injury*
+*Year of the crash (2011)*
+*Month of the crash (integer)*
+*Day of the month of the crash (integer)*
+*Day of the week of the crash (integer)*
+
+GCKC is still seeking approval for their expansion from the regulators and may only be allowed to add one additional region at a time.  (The other regions are defined as follows:
+Northeast: CT, MN, MA, NH, RI, VT; South: DE, FL, GA, MD, NC, SC, VA, DC, WV); West: AZ, CO, ID, MO, NE, NM, UT, WY, AK, CA, HI, OR, WA)
+
+Because the CEO hasn’t given you a target variable, you decide that an unsupervised learning method is appropriate to start. You choose to perform k-means cluster analysis on the provided data set.
+
+Part A: Define the question(s) and prepare the data
+
+Because these data are from law enforcement files, they are not in the best shape for insurance analysis.  A fair amount of cleaning and preprocessing is necessary. You will be working with other data scientists in the department so your code should clearly show what you have done. Documentation is key here.  You will be asked to report to the senior data scientist what you have found and how you intend to proceed.  In no more than 3 or 4 paragraphs (not including tables and /or charts if you choose to use them), answer these questions:
+
+1.	Perform some preliminary EDA on the data and describe the sample.  What do you learn about fatal automobile accidents from this exercise? How can you use that information?
+2.	What steps will you take to prepare the data?  Why?
+3.	What questions will you be able to answer with the cleaned data?  What limitations will you face? 
+(Note: because the audience here are other data scientists, technical terminology is fine.)
+
+
+The packages you will need for this week include **rpart**, **rpart.plot**, **caret**, **tidyverse**, **ggplot2**, **ROCR**, and **gplots**. gplots is needed so ROCR can run. 
+
+install.packages(tidyverse)
+
+```{r packages}
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(ggplot2)
+library(tidyverse)
+library(ROCR)
+```
+
+
+*Import the script*
+```{r data prep} 
+crash <- read.csv("~/Desktop/BIA_FALL17/BIA_FALL17/BIA6301/data/crash.csv")
+```
+
+*Just a little peak at the data*
+
+```{r view the data}
+dim(crash)
+head(crash)
+summary(crash)
+####str(crash)
+table(crash$Gender)
+table(crash$Alcohol.Results)
+```
+*Summary statistics for all the numerical values*
+table(crash)
+```{r some summary stats on the numeric variables}
+summary(crash$Fatalities.in.crash)
+summary(crash$Age)
+summary(crash$Alcohol.Results)
+summary(crash$Date.year)
+#the proportion of missing values*
+#calculate the proportion of missing values
+```
+*Fatalities count*
+
+```{r Fatalities - a quick view}
+summary(crash$Fatalities.in.crash)
+mean(crash$Fatalities.in.crash) #The fact that the mean was calculated indicate that there is no NA or Null values*
+prop.table(table(crash$Fatalities.in.crash))
+plot(crash$Fatalities.in.crash, col = "blue", main = "Number of Fatalites") # The majority (over 80%) of the fatalities only had one casuality
+plot(prop.table(table(crash$Fatalities.in.crash)) ,col= "red", main = "Number of Fatalities")
+```
+
+```{r create a function for missing values}
+pMiss <- function(x){sum(is.na(x))/length(x)*100} 
+apply(crash,2,pMiss)
+```
+###Age - assign the mean value to the missing ages*
+###mean age
+
+```{r Age - calculations}
+str(crash)
+mean(crash$Age, na.rm = TRUE)
+
+crash$Age2 <- crash$Age
+crash$Age2[which(is.na(crash$Age2))] <- median(crash$Age2, na.rm = TRUE)
+summary(crash$Age)
+summary(crash$Age2)
+#The age graph without the missing values*
+hist(crash$Age2)
+hist(crash$Age2, 
+     main="Age distribution", 
+     xlab="crash", 
+     border="gray", 
+     col="dark gray",
+     las=1)
+summary(crash$Age2)
+```
+
+###Age distribution is very large with the minimun age of 0 and the max age of 98. 
+###I will attempt to impute the age variable by infering the "appropriate age" (median age in this case)  for anyone with an age of below 16. 
+```{r Adjust the age of the driver that is younger than 16}
+crash$Age3 <- ifelse(crash$Age2 > 15,
+                     crash$Age2, median(crash$Age2, na.rm = TRUE))
+mean(crash$Age3)
+summary(crash$Age3)
+hist(na.omit(crash$Age3), 
+     main="Age distribution", 
+     xlab="Crash", 
+     border="dark gray", 
+     col="light blue",
+     las=1,
+     prob = TRUE)
+lines(density(na.omit(crash$Age3)))
+```
+
+###Gender plot
+
+```{r Gender data exploration}
+barplot(prop.table(table(crash$Gender, useNA = "ifany")), names.arg=c("Female", "Male","Not Reported","Unknown"),density = 40, col = "light blue")
+title(main="Gender Distribution", font.main = 4)
+###merge the not reported and unknown together
+crash$Gender1 <- ifelse(crash$Gender == "Female", "Female",
+                   ifelse(crash$Gender == "Male", "Male", "Unknown"))
+table(crash$Gender1)
+library(ggplot2)
+####ggplot(crash, aes(crash$Gender1, crash$Fatalities.in.crash)) + geom_boxplot()
+
+ggplot(data = crash) +
+  geom_bar(mapping = aes(x = crash$Gender1))
+prop.table(table(crash$Gender1))
+barplot(prop.table(table(crash$Gender1)), density = 40, col = "light blue")
+title(main="Gender Distribution", font.main =4)
+###Males makes up 65% of the total crash population and females makes up 33.6% with a small margin of unknowns 1%. 
+```
+
+## A few histograms on the categorical variables
+##Atmospheric.Conditions
+#### I'm creating smaller groups for the "Atmospheric Conditions" and a frequency percentage table and graph to follow.
+```{r create less atmospheric groups}
+prop.table(table(crash$Atmospheric.Condition))
+table(crash$Atmospheric.Condition)
+crash$Condition <- ifelse(crash$Atmospheric.Condition == "Blowing Sand, Soil, Dirt"|
+                          crash$Atmospheric.Condition == "Severe Crosswinds", "Windy",
+                   ifelse(crash$Atmospheric.Condition == "Blowing Snow"|
+                          crash$Atmospheric.Condition == "Snow", "Snow",
+                   ifelse(crash$Atmospheric.Condition == "Sleet, Hail (Freezing Rain or Drizzle)"|
+                          crash$Atmospheric.Condition == "Rain", "Rain_Sleet_Hail",
+                   ifelse(crash$Atmospheric.Condition == "Clear","Clear",
+                   ifelse(crash$Atmospheric.Condition == "Cloudy","Cloudy","Other")))))      
+prop.table(table(crash$Condition))   
+barplot(prop.table(table(crash$Condition, useNA = "ifany")), density = 40, col = "light green")
+title(main = "Atmospheric Conditions", font.main = 4)
+### Most of the crashes happened on days where it was clear sky's 64% and on cloudy days 16.9%.  
+```
+##Roadway
+#### I'm creating smaller groups for the "Roadway" - splitting it in rural and urban, with a frequency percentage table and graph that follow.
+```{r create less roadway groups}
+table(crash$Roadway)
+crash$Road <- ifelse(crash$Roadway == "Rural-Local Road or Street"|
+                     crash$Roadway == "Rural-Major Collector"|
+                     crash$Roadway == "Rural-Minor Arterial"|
+                     crash$Roadway == "Rural-Minor Collector"|
+                     crash$Roadway == "Rural-Principal Arterial-Interstate"|
+                     crash$Roadway == "Rural-Principal Arterial-Other"|
+                     crash$Roadway == "Rural-Unknown Rural","Rural",
+              ifelse(crash$Roadway == "Unknown", "Unknown", "Urban"))
+prop.table(table(crash$Road))              
+barplot(prop.table(table(crash$Road, useNA = "ifany")), density = 40, col = "blue")  
+title(main = "Roadway Distribution", font.main = 4)
+### Most of the crashes happened on rural roads 57.6% as compare to urban roads 42.3%. This could be an indication of the road conditions, that urban roads are in better conditions than rural roads.
+```
+
+## Region Segment
+#### I'm creating four regional group by assigning them as per the question information. I've created a frequency percentage table and graph that follow.
+```{r create the region variable as per the question}
+crash$Region <- ifelse(crash$State=="Illinois"|crash$State=="Indiana"|
+                       crash$State=="Michigan"|crash$State=="Ohio"|
+                       crash$State=="Wisconsin"|crash$State=="Iowa"|
+                       crash$State=="Kansas"|crash$State=="Minnesota"|
+                       crash$State=="Missouri"|crash$State=="Nebraska"|
+                       crash$State=="North Dakota"|crash$State=="South Dakota","Midwest",
+                ifelse(crash$State=="Connecticut"|crash$State=="Maine"|
+                       crash$State=="Massachusetts"|crash$State=="New Hamsphire"|
+                       crash$State=="Rhode Island"|crash$State=="Vermont"|
+                       crash$State=="New Jersey"|crash$State=="New York"|
+                       crash$State=="Pennsylvania", "Northeast",
+                ifelse(crash$State=="Delaware"|crash$State=="Florida"|
+                       crash$State=="Georgia"|crash$State=="Maryland"|
+                       crash$State=="North Carolina"|crash$State=="South Carolina"|
+                       crash$State=="Virginia"|crash$State=="District of Columbia"|
+                       crash$State=="West Virginia"|crash$State=="Alabama"|
+                       crash$State=="Kentucky"|crash$State=="Mississippi"|
+                       crash$State=="Tennessee"|crash$State=="Arkansas"|
+                       crash$State=="Louisiana"|crash$State=="Oklahoma"|
+                       crash$State=="Texas","South",
+                ifelse(crash$State=="Arizona"|crash$State=="Colorado"|
+                       crash$State=="Idaho"|crash$State=="Montana"|
+                       crash$State=="Nevada"|crash$State=="New Mexico"|
+                       crash$State=="Utah"|crash$State=="Wyoming"|
+                       crash$State=="Alaska"|crash$State=="California"|
+                       crash$State=="Hawaii"|crash$State=="Oregon"|
+                       crash$State=="Washington","West","NA"))))
+prop.table(table(crash$Region))
+barplot(prop.table(table(crash$Region)), density = 40, col = "blue")
+title(main="Regional Distribution", font.main = 4)
+```
+*Month*
+
+##Drug.Involvement
+#### I'm creating three groups for the "Drug Involement", i.e. yes, no and unknown, with a frequency percentage table and graph that follow.
+```{r Drug Involvement categorization}
+table(crash$Drug.Involvement)
+#Group the Drug Involvement segment unknown and not reported are grouped together*
+crash$Drugs <- ifelse(crash$Drug.Involvement == "No", "No",
+               ifelse(crash$Drug.Involvement == "Yes", "Yes", "Unknown"))
+prop.table(table(crash$Drugs))
+barplot(prop.table(table(crash$Drugs, useNA = "ifany")), density = 40, col = "blue")
+title(main="Drug Distribution")
+### Most of the drug use has not be reported or is unknown 57.8%. Only 4% has had a positive drug test with 38.2% negative.
+#crash$Drugs_Y <- ifelse(crash$Drugs == "Yes", 1,0)
+#crash$Drugs_N <- ifelse(crash$Drugs == "No", 1,0)
+```
+##Race
+#### I'm creating smaller groups for the "Race" - with a frequency percentage table and graph that follow.
+table(crash$Race)
+```{r Race classification - a simpler way}
+barplot(prop.table(table(crash$Race, useNA = "ifany")), density = 40, col = "yellow")
+title(main = "Race Distribution")
+#Grouping the race especially the Asian - all the Asian, Japenese Filipinos, Asian Islanders an Vietnames and Samoans have been grouped together*
+crash$Race1 <- ifelse(crash$Race == "" |crash$Race == "Unknown","Unknown",
+               ifelse(crash$Race == "White", "White", 
+               ifelse(crash$Race == "Black", "Black",
+               ifelse(crash$Race == "American Indian (includes Aleuts and Eskimos) ", American_Indian,
+               ifelse(crash$Race == "Hawaiian (includes Part-Hawaiian)", "Hawaiian", "Asian")))))
+prop.table(table(crash$Race1))
+barplot(prop.table(table(crash$Race1, useNA = "ifany")), density = 40, col = "dark orange")
+title(main="Race Distribution - less groups")
+### The race column hasn't been well populated, but this should not have any effect on the insurance model as pricing cannot be determined by race.
+```
+## Injury Severity
+#### I'm creating smaller groups for the "Injury Severity" - with a frequency percentage table and graph that follow.
+```{r Categorization of severity}
+table(crash$Injury.Severity)
+prop.table(table(crash$Injury.Severity))
+#I did some groupings on the Injury Severity in serious, moderate, possible and no injury*
+crash$Injury <- ifelse(crash$Injury.Severity == "Fatal Injury (K)" |
+                       crash$Injury.Severity == "Incapacitating Injury (A)","Serious_Injury",
+                ifelse(crash$Injury.Severity == "Injured, Severity Unknown"|
+                       crash$Injury.Severity == "Non-incapacitating Evident Injury (B)", "Moderate_Injury", 
+                ifelse(crash$Injury.Severity == "No Injury (O)", "No_Injury","Possible_Injury_unknown")))
+prop.table(table(crash$Injury))
+barplot(prop.table(table(crash$Injury, useNA = "ifany")), density = 40, col = "red")
+title(main="Severity of the Injuries")
+###The severity of the injuries indicate that 58% of the injuries was serious and 13.8% was moderately and 20% of crashes had no injury.
+```
+### Crash.Date.month - can be used 
+#### I'm creating some frequency tables and graphs for the date variables, i.e. crash month, day of the month and day of the week. There is some significant trends within this.
+
+```{r Date graphs}
+table(crash$Crash.Date.month)
+prop.table(table(crash$Crash.Date.month))
+barplot(prop.table(table(crash$Crash.Date.month, useNA = "ifany")), density = 40, col = "orange")
+title(main = "Monthly Distribution")
+### Crash.Date.day.of.month - can be used it indicates 80% of accidents happened in the first 5 months
+### And 50% in January alone
+table(crash$Crash.Date.day.of.month)
+prop.table(table(crash$Crash.Date.day.of.month))
+barplot(prop.table(table(crash$Crash.Date.day.of.month, useNA = "ifany")), density = 40, col = "yellow")
+title(main = "Day of month Distribution")
+###The day of the month indicate that most crashes happened on the 1st of the month
+table(crash$Crash.Date.day.of.week)
+prop.table(table(crash$Crash.Date.day.of.week))
+barplot(prop.table(table(crash$Crash.Date.day.of.week, useNA = "ifany")), density = 40, col = "brown")
+title(main = "Day of the week distribution")
+###Crash.Date.day.of.week - can be used it indicates that Saturday's are worse
+```
+###Alcohol grouping and to deal with the missing values
+#### I'm creating binary columns "Alcohol Results" and adjusted the missing values. There is a frequency percentage table and graph that follow.
+```{r simplification of the Alcohol field}
+crash$Alcohol <- ifelse(crash$Alcohol.Results > 0, 1,0)
+prop.table(table(crash$Alcohol))
+
+hist(crash$Alcohol.Results, main="Alcohol Results Distribution", col = "blue")
+mean(crash$Alcohol.Results) #there is a few NA
+hist(crash$Alcohol, main="Alcohol Distribution", col = "brown")
+prop.table(table(crash$Alcohol))
+###Theses are the null values - assign all the null/NA values a value of 0*
+###The total number of positive alcohol tested individual is 34% (this value ignores the missing values)
+crash$Alcohol[which(is.na(crash$Alcohol))] <- 0
+### After removing the missing values 15% was tested positive for alcohol usage and the remainder is either unreported, negative or missing.
+prop.table(table(crash$Alcohol))
+hist(crash$Alcohol, col = "red", main = "Alcohol Results Distribution")
+```
+
+### Seperate the Person Type field to ascertain who was injured
+## Person Type - the type of person that was injured, i.e. driver, passenger, etc.
+#### I'm creating smaller groups for the "Person Type" - I'm using the seperate function of tidyvers, by splitting the person type column out into six variables. I've only really used the first one. There is a frequency percentage table and graph that follow.
+```{r Person type that was injured}
+table(crash$Person.Type)
+barplot(prop.table(table(crash$Person.Type, useNA = "ifany")), density = 40, col = "blue")
+title(main="Person Type that was Injured")
+#Use the seperate function here - tidyverse*
+
+str(crash)
+crash_2 <- crash %>% separate(Person.Type, c("Person_1", "Person_2", "Person_3", "Person_4", 
+                                             "Person_5", "Person_6"), sep = " ")
+str(crash_2)
+table(crash_2$Person_1)
+table(crash_2$Person_2)
+table(crash_2$Person_3)
+table(crash_2$Person_6)
+table(crash$Person.Type)
+prop.table(table(crash_2$Person_1))
+summary(crash_2)
+summary(crash_2$Person_1)
+head(crash_2)
+#Create some groupings with the person that was injured.*
+crash_2$Person <- ifelse(crash_2$Person_1 == "Bicyclist", "Bicyclist",
+                  ifelse(crash_2$Person_1 == "Driver", "Driver",
+                  ifelse(crash_2$Person_1 == "Passenger" |crash_2$Person_1 == "Occupant", "Passenger", "Other")))
+prop.table(table(crash_2$Person))
+barplot(prop.table(table(crash_2$Person, useNA = "ifany")), density = 40, col = "orange")
+title(main="Person Type that was injured")
+head(crash_2)
+###The person type that was injured during the crash - 61.7% of drivers was injured, 31.7% of passengers or occupants of the vehicle, 0.5% of bicyclist and 6% can be attributed to pedestrians and other road users.
+```
+*The end of part A as per HW2*
+
+*START OF PART B as per HW2*
+
+*I need to drop all the fields that I have transformed or adjusted*
+
+## Creating dummy variables
+
+str(crash_2)
+*Region*
+#### I'm creating numeric dummy variables for the four different regions.
+```{r Region dummy variables}
+prop.table(table(crash_2$Region))
+crash_2$Region_West <- ifelse(crash_2$Region == "West",1,0)
+crash_2$Region_Northeast <- ifelse(crash_2$Region == "Northeast",1,0)
+crash_2$Region_Midwest <- ifelse(crash_2$Region == "Midwest",1,0)
+crash_2$Region_South <- ifelse(crash_2$Region == "South",1,0)
+str(crash_2)
+```
+
+*Atmospheric Condition*
+#### I'm creating numeric dummy variables for the different atmospheric conditions.
+```{r Atmospheric Conditions dummy variables}
+prop.table(table(crash_2$Condition))
+crash_2$Condition_Clear <- ifelse(crash_2$Condition == "Clear",1,0)
+crash_2$Condition_Cloudy <- ifelse(crash_2$Condition == "Cloudy",1,0)
+crash_2$Condition_Snow <- ifelse(crash_2$Condition == "Snow",1,0)
+crash_2$Condition_Windy <- ifelse(crash_2$Condition == "Windy",1,0)
+crash_2$Condition_Rain_Sleet_Hail <- ifelse(crash_2$Condition == "Rain_Sleet_Hail",1,0)
+```
+
+*Roadway*
+#### I'm creating numeric dummy variables for the different raodways.
+```{r roadway dummy variables}
+prop.table(table(crash_2$Road))
+crash_2$Road_Rural <- ifelse(crash_2$Road == "Rural",1,0)
+crash_2$Road_Urban <- ifelse(crash_2$Road == "Urban",1,0)
+```
+
+*Age*
+#### I'm creating numeric dummy variables by splitting the population into three numeric age groups.
+```{r Age dummy variables}
+hist(na.omit(crash_2$Age3), 
+     main="Age distribution", 
+
+     xlab="Crash", 
+     border="dark gray", 
+     col="light blue",
+     las=1,
+     prob = TRUE)
+lines(density(na.omit(crash_2$Age3)))
+
+crash_2$Age_young <- ifelse(crash_2$Age3 <= 36,1,0)
+crash_2$Age_Adult <- ifelse(crash_2$Age3 > 36 |crash$Age3 <= 53,1,0)
+crash_2$Age_Old <- ifelse(crash_2$Age3 > 53,1,0)
+```
+
+*Alcohol Results*
+*Alcohol is good - already numeric*
+
+*Person*
+#### I'm creating numeric dummy variables for the different person types.
+```{r person that was injured dummy variable}
+prop.table(table(crash_2$Person))
+crash_2$Person_Bicyclist <- ifelse(crash_2$Person == "Bicyclist",1,0)
+crash_2$Person_Driver <- ifelse(crash_2$Person == "Driver",1,0)
+crash_2$Person_Passenger <- ifelse(crash_2$Person == "Passenger",1,0)
+```
+*Drugs*
+#### I'm creating numeric dummy variables for the drug variable.
+```{r Drugs dummy variables}
+prop.table(table(crash_2$Drugs))
+#crash$Drugs_Y <- ifelse(crash$Drugs == "Yes", 1,0)
+crash_2$Drugs_Y <- ifelse(crash_2$Drugs == "Yes", 1,0)
+crash_2$Drugs_N <- ifelse(crash_2$Drugs == "No", 1,0)
+```
+*Race*
+#### Race is not really a good indicator for pricing this variable was left out of the cluster analysis.
+
+
+*Gender*
+#### I'm creating numeric dummy variables for gender.
+```{r Gender dummy variables}
+prop.table(table(crash_2$Gender1))
+crash_2$Gender_F <- ifelse(crash_2$Gender1 == "Female", 1,0)
+crash_2$Gender_M <- ifelse(crash_2$Gender1 == "Male", 1,0)
+```
+
+*Injury*
+#### I'm creating numeric dummy variables for the different injuries.
+```{r Injury dummy variables}
+prop.table(table(crash_2$Injury))
+crash_2$Injury_Serious <- ifelse(crash_2$Injury == "Serious_Injury", 1,0)
+crash_2$Injury_Moderate <- ifelse(crash_2$Injury == "Moderate_Injury", 1,0)
+crash_2$Injury_No <- ifelse(crash_2$Injury == "No_Injury", 1,0)
+```
+
+#### I'm creating numeric dummy variables for the 12 different months.
+```{r Month dummy variable}
+prop.table(table(crash$Crash.Date.month))
+crash_2$Month_Jan <- ifelse(crash_2$Crash.Date.month == 1, 1,0)
+crash_2$Month_Feb <- ifelse(crash_2$Crash.Date.month == 2, 1,0)
+crash_2$Month_Mar <- ifelse(crash_2$Crash.Date.month == 3, 1,0)
+crash_2$Month_Apr <- ifelse(crash_2$Crash.Date.month == 4, 1,0)
+crash_2$Month_May <- ifelse(crash_2$Crash.Date.month == 5, 1,0)
+crash_2$Month_Jun <- ifelse(crash_2$Crash.Date.month == 6, 1,0)
+crash_2$Month_Jul <- ifelse(crash_2$Crash.Date.month == 7, 1,0)
+crash_2$Month_Aug <- ifelse(crash_2$Crash.Date.month == 8, 1,0)
+crash_2$Month_Sep <- ifelse(crash_2$Crash.Date.month == 9, 1,0)
+crash_2$Month_Oct <- ifelse(crash_2$Crash.Date.month == 10, 1,0)
+crash_2$Month_Nov <- ifelse(crash_2$Crash.Date.month == 11, 1,0)
+```
+
+*Day*
+#### I'm creating numeric dummy variables for the 7 different days of the week.
+```{r Day dummy variable}
+str(crash_2)
+prop.table(table(crash$Crash.Date.day.of.week))
+crash_2$Day_Mon <- ifelse(crash_2$Crash.Date.day.of.week == 1, 1,0)
+crash_2$Day_Tue <- ifelse(crash_2$Crash.Date.day.of.week == 2, 1,0)
+crash_2$Day_Wed <- ifelse(crash_2$Crash.Date.day.of.week == 3, 1,0)
+crash_2$Day_Thu <- ifelse(crash_2$Crash.Date.day.of.week == 4, 1,0)
+crash_2$Day_Fri <- ifelse(crash_2$Crash.Date.day.of.week == 5, 1,0)
+crash_2$Day_Sat <- ifelse(crash_2$Crash.Date.day.of.week == 6, 1,0)
+str(crash_2)
+```
+
+## I'm creating a table that only consist of numerical values. One of the conditions to apply kmeans is that the data must be of numerical content.
+
+```{r creating a table with only numeric variables}
+crash_3 <- crash_2[,c(31,33:73)]
+head(crash_3)
+```
+# The start of the cluster analysis
+
+#### I need a starting point for the cluster analysis so I choose a cluster of 5 to start of with. I will run a few clusters and then choose the best one based on certain specific criterias. 
+
+```{r the first kmeans cluster}
+set.seed(5431)
+crash_cluster_5 <- kmeans(crash_3, centers = 5)
+
+names(crash_cluster_5)
+
+crash_cluster_5$size
+crash_cluster_5$centers
+t(crash_cluster_5$centers)
+```
+
+```{r install the fpc package}
+library(fpc) #load this
+```
+## creates a visualization of the K=5 cluster. looking to see if there is distinct groups?
+```{r cluster 5 the first one}
+plotcluster(crash_3, crash_cluster_5$cluster, main="k = 5") 
+#The patterns was visible 
+#plotcluster(crash_3, crash_cluster_5$cluster, main="k=5", xlim=c(-20,5), ylim=c(-20,10))
+```
+## I'm exploring a model with 4 centroids, i.e. k=4
+```{r cluster 4 }
+set.seed(5431)
+crash_cluster_4 <- kmeans(crash_3, centers = 4) 
+plotcluster(crash_3, crash_cluster_4$cluster, main="k=4") 
+crash_cluster_4$size
+```
+## I'm exploring a model with 3 centroids, i.e, k=3
+```{r cluster 3}
+set.seed(5431)
+crash_cluster_3 <- kmeans(crash_3, centers = 3, iter.max = 10, nstart = 1, algorithm = "Hartigan-Wong") 
+plotcluster(crash_3, crash_cluster_3$cluster, main="k=3") 
+crash_cluster_3$size
+```
+## I'm exploring a model with 2 centroids, i.e, k=2
+```{r cluster 2}
+set.seed(5431)
+crash_cluster_2 <- kmeans(crash_3, centers = 2) 
+plotcluster(crash_3, crash_cluster_2$cluster, main="k=2") 
+crash_cluster_2$size
+```
+## I'm exploring a model with 6 centroids, i.e, k=6
+```{r cluster 6}
+set.seed(5431)
+crash_cluster_6 <- kmeans(crash_3, centers = 6) 
+plotcluster(crash_3, crash_cluster_6$cluster, main="k=6") 
+crash_cluster_6$size
+```
+## I'm exploring a model with 7 centroids, i.e, k=7
+```{r cluster 7}
+set.seed(5431)
+crash_cluster_7 <- kmeans(crash_3, centers = 7) 
+#The data is in the corners and edges and hard to read- change the lim for y and x:
+#sometime you need to run it first with out the lims and then add them in and run again.
+plotcluster(crash_3, crash_cluster_7$cluster, main="k=7") 
+crash_cluster_7$size
+```
+## I'm exploring a model with 8 centroids, i.e, k=8
+```{r cluster 8}
+set.seed(5431)
+crash_cluster_8 <- kmeans(crash_3, centers = 8) 
+#The data is in the corners and edges and hard to read- change the lim for y and x:
+#sometime you need to run it first with out the lims and then add them in and run again.
+plotcluster(crash_3, crash_cluster_8$cluster, main="k=8") 
+crash_cluster_8$size
+```
+
+## looking at the distince within and between clusters
+```{r cluster5 looking within}
+crash_cluster_5$withinss
+crash_cluster_5$betweenss
+crash_cluster_5$totss
+```
+## Cluster seperation
+####This will give me an indications of well the groups are seperated
+```{r cluster seperation}
+cluster3<- crash_cluster_3$betweenss/crash_cluster_3$totss
+cluster4<- crash_cluster_4$betweenss/crash_cluster_4$totss
+cluster5<- crash_cluster_5$betweenss/crash_cluster_5$totss
+cluster6<- crash_cluster_6$betweenss/crash_cluster_6$totss
+
+betweenss.metric <- c(cluster3, cluster4, cluster5, cluster6)
+print(betweenss.metric) #Look for a ratio that is closer to 1.
+```
+## Cluster cohesion
+####This will give me an indication of well the elements within the group are cohesive
+```{r cluster cohension}
+cluster3<- crash_cluster_3$tot.withinss/crash_cluster_3$totss
+cluster4<- crash_cluster_4$tot.withinss/crash_cluster_4$totss
+cluster5<- crash_cluster_5$tot.withinss/crash_cluster_5$totss
+cluster6<- crash_cluster_6$tot.withinss/crash_cluster_6$totss
+
+totwithinss.metric <- c(cluster3, cluster4, cluster5, cluster6)
+print(totwithinss.metric) #Looking for a ratio that is closer to 0. 
+```
+## Elbow method
+#### The elbow graph generally give a good indications of how many clusters is ideal (at the point of the elbow) - however it is important to choose the number of clusters that would make business sense.
+```{r Elbow method to determine the number of clusters within and between}
+#WithinSS
+
+wss <- (nrow(crash_3)-1)*sum(apply(crash_3,2,var))
+for (i in 2:10) wss[i] <- sum(kmeans(crash_3,
+                                     centers=i)$withinss)
+plot(1:10, wss, type="b", xlab="Number of Clusters",
+     ylab="Within Sum of Squares", main = "Number of Clusters (k) versus Cluster Cohesiveness")
+
+#BetweenSS
+wss <- (nrow(crash_3)-1)*sum(apply(crash_3,2,var))
+for (i in 2:10) wss[i] <- sum(kmeans(crash_3,
+                                     centers=i)$betweenss)
+plot(1:10, wss, type="b", xlab="Number of Clusters",
+     ylab="Between Group Sum of Squares", main = "Number of Clusters (k) versus Cluster Distinctiveness")
+```
+
+### An automatic pick
+```{r an automatic pick for the number of clusters}
+#### The kmeansruns function can determine the best optimal cluster statisically.
+library(fpc) #Requires this
+crash_cluster_optimal<-kmeansruns(crash_3, krange=2:10) #finds the "best"" K between 2 and 10
+
+names(crash_cluster_optimal)
+crash_cluster_optimal$bestk
+crash_cluster_optimal$size
+#It looks like a cluster with 2 centers is ideal*
+```
+## Creating and Aggregate profile the profile - here I used the model with 3 centriods
+#### The cluster with 3 centroids might not be the most optimal but it has distinguishing characteristics that can be used for appriorate pricing differentials.
+```{r an aggregate profile for cluster 3}
+crash_cluster_3$size #Get the size of each cluster
+Cluster_3<-data.frame(crash_cluster_3$centers) #Put the cluster centroids into a data frame
+Cluster_3<-data.frame(t(crash_cluster_3$centers)) #Transpose for easier reading
+###sort the each one of these clusters
+Cluster_3[order(-Cluster_3$X1), ] 
+Cluster_3[order(-Cluster_3$X2), ]
+Cluster_3[order(-Cluster_3$X3), ]
+####Cluster_5[order(-Cluster_5$X4), ]
+####Cluster_5[order(-Cluster_5$X4), ]
+```
+## apply the cluster IDs to the original data frame
+
+#### Various splits was created for different categorical variables in the analysis that follow:
+```{r combining cluster 4 with the data}
+crash_2$cluster <- crash_cluster_3$cluster #adds the cluster number to each recond
+```
+## mean age by cluster
+```{r a few summaries age and gender}
+
+aggregate(data = crash_2, Age3 ~ cluster, mean)
+# proportion of females by cluster
+aggregate(data = crash_2, Gender_F ~ cluster, mean)
+# proportion of males by cluster
+```
+aggregate(data = crash_2, Gender_M ~ cluster, mean)
+
+## mean number region by cluster
+```{r regional summaries}
+aggregate(data = crash_2, Region_Northeast ~ cluster, mean)
+aggregate(data = crash_2, Region_South ~ cluster, mean)
+aggregate(data = crash_2, Region_West ~ cluster, mean)
+aggregate(data = crash_2, Region_Midwest ~ cluster, mean)
+
+###prop.table(table(crash_2$cluster, exclude = 1))
+prop.table(table(crash_2$cluster))
+```
+str(crash_2)
+## Injury category
+```{r Injury summaries}
+aggregate(data = crash_2, Injury_Serious ~ cluster, mean)
+aggregate(data = crash_2, Injury_No ~ cluster, mean)
+aggregate(data = crash_2, Injury_Moderate ~ cluster, mean)
+```
+## Person type category, i.e. driver, passenger, etc.
+```{r Person summaries}
+aggregate(data = crash_2, Person_Driver ~ cluster, mean)
+aggregate(data = crash_2, Person_Passenger ~ cluster, mean)
+aggregate(data = crash_2, Person_Bicyclist ~ cluster, mean)
+```
+```{r raod summaries}
+aggregate(data = crash_2, Road_Urban ~ cluster, mean)
+aggregate(data = crash_2, Road_Rural ~ cluster, mean)
+```
+## Atmospheric conditions category
+```{r Atmospheric Condition summaries}
+aggregate(data = crash_2, Condition_Clear ~ cluster, mean)
+aggregate(data = crash_2, Condition_Cloudy ~ cluster, mean)
+aggregate(data = crash_2, Condition_Rain_Sleet_Hail ~ cluster, mean)
+aggregate(data = crash_2, Condition_Snow ~ cluster, mean)
+aggregate(data = crash_2, Condition_Windy ~ cluster, mean)
+```
+## The drugs category
+```{r drugs summaries}
+aggregate(data = crash_2, Drugs_N ~ cluster, mean)
+aggregate(data = crash_2, Drugs_Y ~ cluster, mean)
+```
+
+# Part C - HW3
+## This is the start of Homework3
+summary(crash_2)
+str(crash_2)
+
+```{r include these packages for the kprototype}
+####instal.package(clustMixType)
+library(clustMixType)
+####lapply(crash_4, class)
+####I think I need to create a subset of my cleaned data set 
+### I need to code my categorical variables into factors
+```
+
+
+*Region*
+#### I'm creating numeric dummy variables for the four different regions.
+```{r Region dummy variables as a factor}
+prop.table(table(crash_2$Region))
+#####crash_2$Region_adj <- factor(crash_2$Region, levels = c("West", "Northeast", "Midwest", "South"), labels = c(1,2,3,4))
+crash_2$Region_adj <- factor(crash_2$Region)
+prop.table(table(crash_2$Region_adj))
+```
+
+### The condition factor variable
+```{r Condition factor variable}
+prop.table(table(crash_2$Condition))
+crash_2$Condition_adj <- factor(crash_2$Condition)
+```
+
+### The Road factor variable
+```{r Road factor variable}
+prop.table(table(crash_2$Road))
+crash_2$Road_adj <- factor(crash_2$Road)
+```
+
+
+### Age is split into three groups 
+```{r Age factor variable}
+####look and see if there is something you want to do with age3 - maybe groupings??
+crash_2$Age_group <- ifelse(crash_2$Age3 <= 36, 1,
+                     ifelse(crash_2$Age3 > 53, 3, 2))
+prop.table(table(crash_2$Age_group))
+crash_2$Age_group <- factor(crash_2$Age_group)
+```
+
+
+### The Person factor variable
+```{r Person factor variaable}
+prop.table(table(crash_2$Person))
+crash_2$Person_adj <- factor(crash_2$Person)
+```
+
+### Drugs factor variable
+```{r Drugs factor variable}
+prop.table(table(crash_2$Drugs))
+crash_2$Drugs_adj <- factor(crash_2$Drugs)
+```
+
+### Gender factor variable
+```{r Gender factor variable}
+prop.table(table(crash_2$Gender1))
+crash_2$Gender1_adj <- factor(crash_2$Gender1, levels = c("Female", "Male", "Unknown"), labels = c("Female", "Male", "Unknown"))
+#####crash_2$Gender1_adj <- factor(crash_2$Gender1)
+```
+
+###Injury factor variable
+```{r Injury factor variable}
+prop.table(table(crash_2$Injury))
+crash_2$Injury_adj <- factor(crash_2$Injury)
+```
+
+
+```{r creating a table with vector and numeric variables}
+crash_4 <- crash_2[,c(75:82,19:21)]
+head(crash_4)
+dim(crash_4)
+crash_a <- na.omit(crash_4)
+dim(crash_a)
+```
+
+```{r kproto on the crash data set all missing values are removed}
+crash_a.kprototype <- kproto(crash_a, k=5) 
+summary(crash_a.kprototype)
+crash_a.kprototype$size #Get the size of each cluster
+```
+
+### looking at the elbow plot 
+```{r kprototype.elbow}
+data <- crash_a
+# Elbow Method for finding the optimal number of clusters
+set.seed(123)
+# Compute and plot wss for k = 2 to k = 15.
+k.max <- 15
+data <- na.omit(data) # to remove the rows with NA's
+wss <- sapply(1:k.max, 
+ function(k){kproto(data, k)$tot.withinss})
+wss
+plot(1:k.max, wss,
+ type="b", pch = 19, frame = FALSE, 
+ xlab="Number of clusters K",
+ ylab="Total within-clusters sum of squares")
+```
+
+
+### This is a view of each cluster
+```{r looking at the clusters for kprototype}
+crash_a$cluster_kprototype <- crash_a.kprototype$cluster #use this line to assign cluster ID back to each record.
+
+###crash_a.mixed.profiles <- aggregate(crash_a[,-c(1:2,11:12)], by=list(crash_a$cluster_kprototype), FUN=mean) #cannot calculate means for categorical variables so remove those columns. 
+
+#view the cereals in each cluster
+subset(crash_a, cluster_kprototype==1)
+```
+```{r second one for kprototype}
+subset(crash_a, cluster_kprototype==2)
+```
+
+```{r third one for kprototype}
+subset(crash_a, cluster_kprototype==3)
+```
+
+```{r fourth one for kprototype}
+subset(crash_a, cluster_kprototype==4)
+```
+
+```{r fifth one for kprototype}
+subset(crash_a, cluster_kprototype==5)
+```
+
